@@ -1,0 +1,168 @@
+1. Login to mysql
+mysql -u anabig114249 -pBigdata123
+
+show databases;
+use anabig114249;
+show tables;
+
+
+2. Create tables for retail data using codes
+a. upload create_db.sql to ftp (https://npbdh.cloudloka.com/ftp)
+ 
+b. run the below command to create tables under 
+source /home/anabig114249/create_db.sql
+
+c. Remove the existing data from hdfs incase if you created below tables in the past
+hdfs dfs -rm -r /user/anabig114246/hive/warehouse/categories/
+hdfs dfs -rm -r /user/anabig114246/hive/warehouse/customers/
+hdfs dfs -rm -r /user/anabig114246/hive/warehouse/departments/
+hdfs dfs -rm -r /user/anabig114246/hive/warehouse/order_items/
+hdfs dfs -rm -r /user/anabig114246/hive/warehouse/orders/
+hdfs dfs -rm -r /user/anabig114246/hive/warehouse/products/
+
+***Understand sqoop commands
+
+**dislay the list of databases in mysql
+sqoop list-databases --connect jdbc:mysql://ip-10-1-1-204.ap-south-1.compute.internal:3306 --username anabig114249 --password Bigdata123
+
+**dislay the list of tables in the databases in  mysql
+sqoop list-tables --connect jdbc:mysql://ip-10-1-1-204.ap-south-1.compute.internal:3306/anabig114249 --username anabig114249 --password Bigdata123
+
+**importing the all tables from mysql to hdfs in a partical location:
+
+ /user/anabig114246/hive/warehouse and file format as avro file
+
+sqoop import-all-tables --connect jdbc:mysql://ip-10-1-1-204.ap-south-1.compute.internal:3306/anabig114249 --username anabig114249 --password Bigdata123 --compression-codec=snappy --as-avrodatafile --warehouse-dir=/user/anabig114249/hive/warehouse --driver com.mysql.jdbc.Driver 
+
+**check that your Avro data files exist in HDFS
+hdfs dfs -ls /user/anabig114249/hive/warehouse
+
+hdfs dfs -ls /user/anabig114249/hive/warehouse/categories
+
+**check that avro file exist in local system 
+ ls -l *.avsc
+
+**Create a new dir 
+hdfs dfs -mkdir uesrtest
+
+**Giving the write/read access to dir 
+hdfs dfs -chmod +rw usertest 
+
+**Uploading the avro file local file to hdfs 
+hdfs dfs -copyfromlocal /*.avro /user/anabig114249/usertest
+
+QUERYING THE DATA FROM CDH USING IMPALA:
+**Create a databases in impala
+CREATE DATABASES RETAILDATA
+
+**use the retaildata  databases 
+USE RETAILDATA
+
+***Create a tables in retalaidata databases:
+
+**Creating categories table :
+CREATE EXTERNAL TABLE categories STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/categories'
+TBLPROPERTIES 
+('avro.schema.url'='hdfs://quickstart/user/examples/sqoop_import_categories.avsc');
+
+**creating customer table 
+CREATE EXTERNAL TABLE customers STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/customers'
+TBLPROPERTIES 
+('avro.schema.url'='hdfs://quickstart/user/examples/sqoop_import_customers.avsc');
+
+
+**creating departments table 
+CREATE EXTERNAL TABLE departments STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/departments'
+TBLPROPERTIES 
+('avro.schema.url'='hdfs://quickstart/user/examples/sqoop_import_departments.avsc');
+
+**creating orders table 
+CREATE EXTERNAL TABLE orders STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/orders'
+TBLPROPERTIES 
+('avro.schema.url'='hdfs://quickstart/user/examples/sqoop_import_orders.avsc');
+
+**creating order_items table 
+CREATE EXTERNAL TABLE order_items STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/order_items'
+TBLPROPERTIES 
+('avro.schema.url'='hdfs://quickstart/user/examples/sqoop_import_order_items.avsc'); 
+
+
+**creating products table 
+CREATE EXTERNAL TABLE products STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/products'
+TBLPROPERTIES 
+('avro.schema.url'='hdfs://quickstart/user/examples/sqoop_import_products_items.avsc'); 
+
+
+**display the tables in the datqbase
+show tables;
+
+**Most popular product categories
+select c.category_name, count(order_item_quantity) as count
+from order_items oi
+inner join products p on oi.order_item_product_id = p.product_id
+inner join categories c on c.category_id = p.product_category_id
+group by c.category_name
+order by count desc
+limit 10;
+
+**top 10 revenue generating products
+select p.product_id, p.product_name, r.revenue
+from products p inner join
+(select oi.order_item_product_id, sum(cast(oi.order_item_subtotal as float)) as 
+revenue
+from order_items oi inner join orders o
+on oi.order_item_order_id = o.order_id
+where o.order_status <> 'CANCELED'
+and o.order_status <> 'SUSPECTED_FRAUD'
+group by order_item_product_id) r
+on p.product_id = r.order_item_product_id
+order by r.revenue desc
+limit 10;
+
+**Creating new dirs hives/warehouse/original_access_logs1
+hdfs dfs -mkdir hives/warehouse/original_access_logs1
+
+**copying the access.log.2 data into  local to hdfs  
+hdfs dfs  -copyFromLocal /home/anabig114249/access.log.2 /user/hive/warehouse/original_access_logs1
+
+**view the data 
+hdfs dfs  -ls /user/hive/warehouse/original_access_logs1
+
+create a table in hive 
+CREATE EXTERNAL TABLE intermediate_access_logs(ip STRING, date STRING, method STRING, url STRING, http_version STRING, code1 STRING, code2 STRING, dash STRING, user_agent STRING) 
+ROW FORMAT SERDE 'org.apache.hadoop.hive.contrib.serde2.RegexSerDe' WITH 
+SERDEPROPERTIES ('input.regex' = '([^ ]) - - \\[([^\\]])\\] "([^\ ]) ([^\ ]) ([^\ ])" (\\d) (\\d*) "([^"])" "([^"])"', 
+'output.format.string' = "%1$s %2$s %3$s %4$s %5$s %6$s %7$s %8$s %9$s" ) 
+LOCATION '/user/anabig114246/hive/warehouse/original_access_logs';
+
+CREATE EXTERNAL TABLE 
+tokenized_access_logs (ip STRING,date STRING,method STRING,url STRING,http_version STRING,
+code1 STRING,code2 STRING,dash STRING,user_agent STRING)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+LOCATION '/user/hive/warehouse/tokenized_access_logs';
+
+INSERT OVERWRITE TABLE 
+tokenized_access_logs SELECT * FROM intermediate_access_logs;
+
+select count(*),url from tokenized_access_logs
+where url like '%\/product\/%'
+group by url order by count(*) desc;
+
+
+
+
+sqoop import-all-tables  --connect jdbc:mysql://ip-10-1-1-204.ap-south-1.compute.internal:3306/anabig114249 --username anabig114249 --password Bigdata123 --compression-codec=snappy --as-avrodatafile --warehouse-dir=/user/anabig114246/hive/warehouse --driver com.mysql.jdbc.Driver
+
+
+
+
+
+
+
+
